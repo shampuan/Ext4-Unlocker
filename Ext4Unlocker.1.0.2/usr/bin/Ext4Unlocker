@@ -1,0 +1,546 @@
+#!/usr/bin/env python3
+
+# Aydınlatan ve geliştiren bilimin adıyla:
+# Ve eğer varsa, ulu yaratıcımızın adıyla...
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, GLib, GdkPixbuf, Gdk
+import subprocess
+import os
+import json
+
+class DiskYoneticiUygulama(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Ext4 Unlocker")
+        self.set_default_size(350, 250) 
+        self.set_resizable(False)
+        self.set_border_width(10)
+        self.onceki_diskler = set()
+        self.dil = 'en'  # Varsayılan dil İngilizce
+        
+        # --- 1. CSS VE GÖRÜNÜM AYARLARI ---
+        self.uygula_stil()
+        
+        # İkon ayarla (Ana Pencere)
+        try:
+            self.set_icon_from_file("/usr/share/Ext4 Unlocker/icons/ext4.png")
+        except:
+            pass
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        self.add(main_box)
+
+        # --- 2. İKONU EN ÜSTE EKLEME VE ORTALAMA ---
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(
+                "/usr/share/Ext4 Unlocker/icons/ext4.png", 
+                64, 64 
+            )
+            self.logo_image = Gtk.Image.new_from_pixbuf(pixbuf)
+        except Exception:
+            self.logo_image = Gtk.Image()
+
+        main_box.pack_start(self.logo_image, False, False, 5)
+
+        # Disk listesi
+        self.label = Gtk.Label(label="Select the disk you want to operate on:")
+        main_box.pack_start(self.label, False, False, 0)
+        
+        self.disk_combo = Gtk.ComboBoxText()
+        main_box.pack_start(self.disk_combo, False, False, 0)
+        self.listele_diskler()
+        
+        # Otomatik yenileme için zamanlayıcı
+        GLib.timeout_add_seconds(2, self.kontrol_et_diskler)
+
+        # Butonlar
+        button_box = Gtk.Box(spacing=6)
+        button_box.set_homogeneous(True) 
+        main_box.pack_start(button_box, False, False, 0)
+        
+        # KİLİDİ AÇ (YEŞİL) BUTONU
+        self.izinleri_ac_btn, self.izinleri_ac_label = self._olustur_ikonlu_buton(
+            label="Open Permissions", 
+            icon_path="/usr/share/Ext4 Unlocker/icons/unlock.png", 
+            name="izinleri_ac_btn"
+        )
+        self.izinleri_ac_btn.connect("clicked", self.on_izinleri_ac_clicked)
+        button_box.pack_start(self.izinleri_ac_btn, True, True, 0)
+
+        # EVRENSEL ERİŞİM (TURUNCU) BUTONU
+        self.evrensel_btn, self.evrensel_label = self._olustur_ikonlu_buton(
+            label="Universal Access", 
+            icon_path="/usr/share/Ext4 Unlocker/icons/makefree.png",
+            name="evrensel_btn"
+        )
+        self.evrensel_btn.connect("clicked", self.on_evrensel_ac_clicked)
+        button_box.pack_start(self.evrensel_btn, True, True, 0)
+        
+        # İZİNLERİ GERİ AL (KIRMIZI) BUTONU
+        self.izinleri_kapat_btn, self.izinleri_kapat_label = self._olustur_ikonlu_buton(
+            label="Revert Permissions", 
+            icon_path="/usr/share/Ext4 Unlocker/icons/lock.png", 
+            name="izinleri_kapat_btn"
+        )
+        self.izinleri_kapat_btn.connect("clicked", self.on_izinleri_kapat_clicked)
+        button_box.pack_start(self.izinleri_kapat_btn, True, True, 0)
+        
+        # Diğer butonlar
+        misc_button_box = Gtk.Box(spacing=6)
+        main_box.pack_start(misc_button_box, False, False, 0)
+
+        self.hakkinda_btn = Gtk.Button(label="About")
+        self.hakkinda_btn.connect("clicked", self.on_hakkinda_clicked)
+        misc_button_box.pack_start(self.hakkinda_btn, True, True, 0)
+
+        self.language_btn = Gtk.Button(label="Language")
+        self.language_btn.connect("clicked", self.on_language_clicked)
+        misc_button_box.pack_start(self.language_btn, True, True, 0)
+
+    # --- YARDIMCI METOTLAR ---
+    def _olustur_ikonlu_buton(self, label, icon_path, name):
+        """İkon ve metni dikey olarak yerleştiren özel bir Gtk.Button oluşturur."""
+        
+        button = Gtk.Button()
+        button.set_name(name)
+        
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        vbox.set_border_width(5) 
+        button.add(vbox)
+        
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(
+                icon_path, 
+                61, 48 
+            )
+            image = Gtk.Image.new_from_pixbuf(pixbuf)
+        except Exception:
+            image = Gtk.Image() 
+
+        vbox.pack_start(image, True, True, 0)
+        
+        lbl = Gtk.Label(label=label)
+        lbl.set_name(f"{name}_label") 
+        vbox.pack_start(lbl, True, True, 0)
+        
+        return button, lbl
+        
+    def uygula_stil(self):
+        """GTK CSS stilini oluşturur ve uygular (Koyu Yeşil/Bordo Kırmızı butonlar)."""
+        css_provider = Gtk.CssProvider()
+        
+        css = """
+        /* Kilidi Aç (Koyu Yeşil) butonu */
+        #izinleri_ac_btn {
+            background-image: none;
+            background-color: #006400; /* Koyu Yeşil (DarkGreen) */
+            color: white;
+            font-weight: bold;
+            padding: 2px; 
+            border-radius: 5px;
+        }
+        #izinleri_ac_btn:hover {
+            background-color: #2E8B57; /* Koyu Deniz Yeşili (SeaGreen) */
+        }
+
+        /* İzinleri Geri Al (Bordo Kırmızı) butonu */
+        #izinleri_kapat_btn {
+            background-image: none;
+            background-color: #800000; /* Bordo Kırmızı (Maroon) */
+            color: white;
+            font-weight: bold;
+            padding: 2px;
+            border-radius: 5px;
+        }
+        #izinleri_kapat_btn:hover {
+            background-color: #A52A2A; /* Kahverengi (Brown) */
+        }
+        
+        /* YENİ: Evrensel Erişim (Turuncu) butonu */
+        #evrensel_btn {
+            background-image: none;
+            background-color: #FF8C00; /* Koyu Turuncu */
+            color: white;
+            font-weight: bold;
+            padding: 2px;
+            border-radius: 5px;
+        }
+        #evrensel_btn:hover {
+            background-color: #FFA500; /* Açık Turuncu */
+        }
+        
+        /* Buton içindeki etiketler için stil (Böylece buton metni doğru renkte kalır) */
+        #izinleri_ac_btn label, #izinleri_kapat_btn label, #evrensel_btn label {
+            color: white;
+            font-weight: bold;
+        }
+        """
+        
+        css_provider.load_from_data(css.encode())
+        
+        screen = Gdk.Screen.get_default()
+        style_context = Gtk.StyleContext()
+        style_context.add_provider_for_screen(screen, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
+    # --- İŞLEV METOTLARI ---
+
+    def listele_diskler(self):
+        self.disk_combo.get_model().clear()
+        try:
+            cmd = "lsblk -o NAME,MODEL,VENDOR,FSTYPE,MOUNTPOINT,TRAN --json"
+            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            data = result.stdout
+            
+            disks = json.loads(data)['blockdevices']
+            sistem_diskleri = self.tespit_et_sistem_diskleri()
+            
+            for disk in disks:
+                if "children" in disk:
+                    for child in disk["children"]:
+                        name = child.get('name')
+                        fs_type = child.get('fstype')
+                        transport = disk.get('tran', '').lower()
+                        mountpoint = child.get('mountpoint')
+                        
+                        if name and fs_type:
+                            full_name = f"/dev/{name}"
+                            
+                            if full_name in sistem_diskleri:
+                                continue
+                                
+                            if fs_type == 'ext4' and transport == 'usb':
+                                model = (disk.get('model') or '').strip()
+                                vendor = (disk.get('vendor') or '').strip()
+                                
+                                display_text = f"{full_name} ({fs_type.upper()}"
+                                if transport:
+                                    display_text += f" {transport.upper()}"
+                                if model or vendor:
+                                    display_text += f" - {model} {vendor})"
+                                else:
+                                    display_text += ")"
+                                    
+                                self.disk_combo.append_text(display_text)
+                
+            if self.disk_combo.get_model().get_n_columns() > 0:
+                self.disk_combo.set_active(0)
+            
+        except Exception as e:
+            pass
+    
+    def tespit_et_sistem_diskleri(self):
+        sistem_diskleri = set()
+        try:
+            cmd = "df / | tail -1 | awk '{print $1}'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            root_disk = result.stdout.strip()
+            if root_disk:
+                sistem_diskleri.add(root_disk)
+            
+            cmd = "mount | grep -E '^/dev/' | awk '{print $1}'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    sistem_diskleri.add(line.strip())
+                    
+        except:
+            pass
+        return sistem_diskleri
+    
+    def kontrol_et_diskler(self):
+        try:
+            cmd = "lsblk -o NAME,TRAN,FSTYPE --json"
+            result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+            data = result.stdout
+            
+            disks = json.loads(data)['blockdevices']
+            mevcut_diskler = set()
+            
+            for disk in disks:
+                transport = disk.get('tran', '').lower()
+                if "children" in disk and transport == 'usb':
+                    for child in disk["children"]:
+                        name = child.get('name')
+                        fs_type = child.get('fstype')
+                        if name and fs_type == 'ext4':
+                            mevcut_diskler.add(name)
+            
+            if mevcut_diskler != self.onceki_diskler:
+                self.listele_diskler()
+                self.onceki_diskler = mevcut_diskler
+                
+        except:
+            pass
+        
+        return True
+
+    def guncelle_dil(self):
+        if self.dil == 'en':
+            self.set_title("Ext4 Unlocker")
+            self.label.set_text("Select the disk you want to operate on:")
+            self.evrensel_label.set_label("Universal Access")
+            self.izinleri_ac_label.set_label("Open Permissions")
+            self.izinleri_kapat_label.set_label("Revert Permissions")
+            self.hakkinda_btn.set_label("About")
+            self.language_btn.set_label("Language")
+        else:
+            self.set_title("Ext4 Unlocker")
+            self.label.set_text("İşlem yapmak istediğiniz diski seçin:")
+            self.evrensel_label.set_label("Evrensel Erişim")
+            self.izinleri_ac_label.set_label("İzinleri Aç")
+            self.izinleri_kapat_label.set_label("İzinleri Geri Al")
+            self.hakkinda_btn.set_label("Hakkında")
+            self.language_btn.set_label("Dil")
+            
+    def on_evrensel_ac_clicked(self, widget):
+        secili_disk = self.disk_combo.get_active_text()
+        if not secili_disk:
+            mesaj = "Please select a disk." if self.dil == 'en' else "Lütfen bir disk seçin."
+            self.goster_hata_mesaji(mesaj)
+            return
+
+        disk_dev = secili_disk.split(" ")[0]
+        mount_noktasi = "/mnt/USB_ext4_birimi"
+
+        commands = [
+            f"for m in $(mount | grep {disk_dev} | awk '{{print $3}}'); do udisksctl unmount -b {disk_dev} || umount -l $m || true; done",
+            
+            f"umount -l {mount_noktasi} || true", 
+            f"rm -rf {mount_noktasi}",
+            f"mkdir -p {mount_noktasi}",
+            
+            f"mount -o rw {disk_dev} {mount_noktasi}",
+            
+            f"chown -R root:root {mount_noktasi} 2>/dev/null || true", 
+            
+            f"chmod -R 777 {mount_noktasi}",
+            
+            f"umount -l {mount_noktasi} || true" 
+        ]
+        
+        pkexec_cmd = ["pkexec", "bash", "-c", " && ".join(commands)]
+        
+        try:
+            subprocess.run(pkexec_cmd, check=True, capture_output=True, text=True)
+            
+            if self.dil == 'en':
+                mesaj = f"Universal Read/Write permissions successfully activated for '{secili_disk}'. The disk is now accessible to ANY user on ANY Linux distribution.\n\nYOU MUST physically remove and reconnect the disk for the settings to take full effect."
+            else:
+                mesaj = f"Evrensel Okuma/Yazma izinleri '{secili_disk}' için başarıyla etkinleştirildi. Disk artık HERHANGİ BİR Linux dağıtımındaki HER KULLANICI tarafından erişilebilir.\n\nAyarların tam olarak geçerli olması için diski FİZİKSEL OLARAK çıkarıp yeniden takmalısınız."
+            
+            self.goster_bilgi_mesaji(mesaj)
+            
+        except subprocess.CalledProcessError as e:
+            mesaj = f"An error occurred while setting universal permissions:\n{e.stderr}" if self.dil == 'en' else f"Evrensel izinler ayarlanırken bir hata oluştu:\n{e.stderr}"
+            self.goster_hata_mesaji(mesaj)
+        except Exception as e:
+            mesaj = f"An unexpected error occurred: {e}" if self.dil == 'en' else f"Beklenmeyen bir hata oluştu: {e}"
+            self.goster_hata_mesaji(mesaj)
+
+    
+    def on_izinleri_ac_clicked(self, widget):
+        secili_disk = self.disk_combo.get_active_text()
+        if not secili_disk:
+            mesaj = "Please select a disk." if self.dil == 'en' else "Lütfen bir disk seçin."
+            self.goster_hata_mesaji(mesaj)
+            return
+
+        disk_dev = secili_disk.split(" ")[0]
+        mount_noktasi = "/mnt/USB_ext4_birimi"
+        user = os.getlogin()
+
+        commands = [
+            f"for m in $(mount | grep {disk_dev} | awk '{{print $3}}'); do udisksctl unmount -b {disk_dev} || umount -l $m || true; done",
+            
+            f"umount -l {mount_noktasi} || true", 
+            f"rm -rf {mount_noktasi}",
+            f"mkdir -p {mount_noktasi}",
+            f"mount -o rw {disk_dev} {mount_noktasi}",
+            
+            # KRİTİK DÜZELTME: Sahipliği kullanıcıya atadıktan sonra izinleri de 700 olarak ayarla
+            f"chown -R {user}:{user} {mount_noktasi} 2>/dev/null || true",
+            f"chmod -R 700 {mount_noktasi} 2>/dev/null || true" # YENİ: Kullanıcıya tam yazma iznini garanti eder.
+        ]
+        
+        pkexec_cmd = ["pkexec", "bash", "-c", " && ".join(commands)]
+        
+        try:
+            result = subprocess.run(pkexec_cmd, check=True, capture_output=True, text=True)
+            if self.dil == 'en':
+                mesaj = f"Write permissions successfully opened for '{secili_disk}'. The disk is now owned by you (700).\n\nTo access your disk, please go to **'{mount_noktasi}'** folder from file manager. **Do NOT** use the icon on the sidebar.\n\nYou must physically remove and reconnect the disk for the settings to take effect."
+            else:
+                mesaj = f"'{secili_disk}' diski için yazma izinleri başarıyla açıldı. Diskin sahibi artık sizsiniz (700).\n\nDiskinize erişmek için lütfen dosya yöneticisinden **'{mount_noktasi}'** klasörüne gidin. **Yan paneldeki ikonu KULLANMAYIN**.\n\nAyarların geçerli olması için diski fiziksel olarak çıkarıp yeniden takmalısınız."
+            self.goster_bilgi_mesaji(mesaj)
+        except subprocess.CalledProcessError as e:
+            mesaj = f"An error occurred while opening permissions:\n{e.stderr}" if self.dil == 'en' else f"İzinler açılırken bir hata oluştu:\n{e.stderr}"
+            self.goster_hata_mesaji(mesaj)
+        except FileNotFoundError:
+            mesaj = "pkexec, udisksctl or mount command not found. Please make sure they are installed." if self.dil == 'en' else "pkexec, udisksctl veya mount komutu bulunamadı. Lütfen yüklü olduğundan emin olun."
+            self.goster_hata_mesaji(mesaj)
+        except Exception as e:
+            mesaj = f"An unexpected error occurred: {e}" if self.dil == 'en' else f"Beklenmeyen bir hata oluştu: {e}"
+            self.goster_hata_mesaji(mesaj)
+    
+    def on_izinleri_kapat_clicked(self, widget):
+        secili_disk = self.disk_combo.get_active_text()
+        if not secili_disk:
+            mesaj = "Please select a disk." if self.dil == 'en' else "Lütfen bir disk seçin."
+            self.goster_hata_mesaji(mesaj)
+            return
+
+        disk_dev = secili_disk.split(" ")[0]
+        mount_noktasi = "/mnt/USB_ext4_birimi"
+        
+        commands = [
+            f"for m in $(mount | grep {disk_dev} | awk '{{print $3}}'); do udisksctl unmount -b {disk_dev} || umount -l $m || true; done",
+            f"umount -l {mount_noktasi} || true",
+            
+            f"mkdir -p {mount_noktasi}",
+            f"mount {disk_dev} {mount_noktasi} || true", 
+            
+            # Sahipliği root:root yap
+            f"chown -R root:root {mount_noktasi} 2>/dev/null || true", 
+            
+            # İzinleri 755 yap (Diğerlerine okuma/gezme izni ver, yazma iznini engelle)
+            f"chmod -R 755 {mount_noktasi} 2>/dev/null || true", 
+            
+            f"for m in $(mount | grep {disk_dev} | awk '{{print $3}}'); do udisksctl unmount -b {disk_dev} || umount -l $m || true; done",
+            f"umount -l {mount_noktasi} || true",
+            
+            f"rmdir {mount_noktasi} || rm -rf {mount_noktasi} || true" 
+        ]
+
+        pkexec_cmd = ["pkexec", "bash", "-c", " && ".join(commands)]
+
+        try:
+            result = subprocess.run(pkexec_cmd, check=True, capture_output=True, text=True)
+            
+            if self.dil == 'en':
+                mesaj = f"The mount point for '{secili_disk}' was cleaned and **ownership/permissions were reverted to root:root (755)**. The disk is now expected to be read-only for normal users, but accessible.\n\nYou **MUST** physically remove and reconnect the disk to verify the changes and allow the system to remount."
+            else:
+                mesaj = f"'{secili_disk}' diskinin bağlama noktası temizlendi ve **sahiplik/izinler root:root (755)'e geri verildi**. Disk artık normal kullanıcılar için salt okunur olmalı ve erişilebilir olmalıdır.\n\nDeğişikliklerin doğrulanması için diski **FİZİKSEL OLARAK ÇIKARIP YENİDEN TAKMALISINIZ**."
+                    
+            self.goster_bilgi_mesaji(mesaj)
+
+        except subprocess.CalledProcessError as e:
+            mesaj = f"An error occurred while reverting permissions:\n{e.stderr}" if self.dil == 'en' else f"İzinler geri alınırken bir hata oluştu:\n{e.stderr}"
+            self.goster_hata_mesaji(mesaj)
+        except FileNotFoundError:
+            mesaj = "pkexec, udisksctl or umount command not found. Please make sure they are installed." if self.dil == 'en' else "pkexec, udisksctl veya umount komutu bulunamadı. Lütfen yüklü olduğundan emin olun."
+            self.goster_hata_mesaji(mesaj)
+        except Exception as e:
+            mesaj = f"An unexpected error occurred: {e}" if self.dil == 'en' else f"Beklenmeyen bir hata oluştu: {e}"
+            self.goster_hata_mesaji(mesaj)
+
+    # --- YARDIMCI METOTLAR ---
+    
+    def on_hakkinda_clicked(self, widget):
+        about = Gtk.AboutDialog()
+        about.set_transient_for(self)
+        about.set_modal(True)
+        
+        about.set_program_name("Ext4 Unlocker")
+        about.set_version("1.0.2")
+        about.set_license_type(Gtk.License.GPL_3_0)
+        
+        if self.dil == 'en':
+            about.set_comments("A simple tool for managing write permissions on external Ext4 drives.")
+        else:
+            about.set_comments("Harici Ext4 diskler için yazma izinlerini yöneten basit bir araç.")
+        
+        about.set_authors(["A. Serhat KILIÇOĞLU (shampuan)", "Fatih ÖNDER (CekToR)"])
+        about.set_website("https://github.com/shampuan")
+        about.set_website_label("GitHub")
+        
+        ICON_PATH = "/usr/share/Ext4 Unlocker/icons/ext4.png"
+        try:
+            pixbuf = GdkPixbuf.new_from_file(ICON_PATH)
+            about.set_logo(pixbuf)
+        except Exception as e:
+            pass
+            
+        about.run()
+        about.destroy()
+    
+    def on_language_clicked(self, widget):
+        self.dil = 'tr' if self.dil == 'en' else 'en'
+        self.guncelle_dil()
+
+    def goster_bilgi_mesaji(self, mesaj):
+        title = "Information" if self.dil == 'en' else "Bilgi"
+        button_text = "OK" if self.dil == 'en' else "Tamam"
+        dialog = Gtk.Dialog(title=title, parent=self, flags=0)
+        dialog.add_button(button_text, Gtk.ResponseType.OK)
+        
+        dialog.set_default_size(400, 130) 
+        
+        content_area = dialog.get_content_area()
+        content_area.set_border_width(20)
+        
+        label = Gtk.Label(label=mesaj)
+        label.set_line_wrap(True)
+        label.set_justify(Gtk.Justification.LEFT)
+        content_area.pack_start(label, True, False, 0) 
+        
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+
+    def goster_hata_mesaji(self, mesaj):
+        title = "Error" if self.dil == 'en' else "Hata"
+        button_text = "OK" if self.dil == 'en' else "Tamam"
+        dialog = Gtk.Dialog(title=title, parent=self, flags=0)
+        dialog.add_button(button_text, Gtk.ResponseType.OK)
+        
+        dialog.set_default_size(400, 130) 
+        
+        content_area = dialog.get_content_area()
+        content_area.set_border_width(20)
+        
+        label = Gtk.Label(label=mesaj)
+        label.set_line_wrap(True)
+        label.set_justify(Gtk.Justification.LEFT)
+        content_area.pack_start(label, True, False, 0) 
+        
+        dialog.show_all()
+        dialog.run()
+        dialog.destroy()
+        
+######## White Rabbit###################
+# One pill makes you larger
+# And one pill makes you small
+# And the ones that mother gives you
+# Don't do anything at all
+# Go ask Alice
+# When she's ten feet tall
+# And if you go chasing rabbits
+# And you know you're going to fall
+# Tell 'em a hookah-smoking caterpillar
+# Has given you the call
+# He called Alice
+# When she was just small
+# When the men on the chessboard
+# Get up and tell you where to go
+# And you've just had some kind of mushroom
+# And your mind is moving low
+# Go ask Alice
+# I think she'll know
+# When logic and proportion
+# Have fallen sloppy dead
+# And the White Knight is talking backwards
+# And the Red Queen's off with her head
+# Remember what the dormouse said
+# Feed your head
+# Feed your head
+########### Jafferson Airplane ##########
+
+def main():
+    win = DiskYoneticiUygulama()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Ext4 Unlocker
+Comment=A tool for managing write permissions on external Ext4 drives.
+Comment[tr]=Harici Ext4 disklerde yazma izinlerini yönetmek için basit bir araç.
+Exec=/usr/share/Ext4Unlocker/Ext4Unlocker.py
+Icon=ext4
+Terminal=false
+Type=Application
+Categories=Utility;System;DiskManagement;
+Keywords=Ext4;Unlocker;Permissions;Chown;Chmod;Disk;USB;
+StartupNotify=true

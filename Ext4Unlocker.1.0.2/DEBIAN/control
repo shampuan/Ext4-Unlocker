@@ -1,0 +1,9 @@
+Package: ext4-unlocker
+Version: 1.0.2
+Section: utils
+Priority: optional
+Architecture: all
+Depends: python3, python3-gi, gir1.2-gtk-3.0, policykit-1
+Maintainer: A. Serhat KILIÇOĞLU <www.github.com/shampuan>
+Description: Ext4 Kilidi Açıcı
+ Harici Ext4 disklerdeki yazma izinlerini kolayca yönetmek için tasarlanmış basit bir grafik arayüz (GUI) aracıdır. Diski salt okunur, tek kullanıcı yazılabilir veya evrensel yazılabilir modlar arasında geçiş yapabilir.
